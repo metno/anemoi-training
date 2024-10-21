@@ -1,5 +1,4 @@
 prefetch_factor: 2
-pin_memory: True
 
 num_workers:
   training: 8
