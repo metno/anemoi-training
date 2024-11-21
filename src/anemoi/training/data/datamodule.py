@@ -22,6 +22,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 from anemoi.training.data.dataset import NativeGridDataset
+from anemoi.training.data.dataset import ZipDataset
 from anemoi.training.data.dataset import worker_init_func
 
 LOGGER = logging.getLogger(__name__)
@@ -216,3 +217,50 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         return self._get_dataloader(self.ds_test, "test")
+    
+class AnemoiDatasetsZipModule(AnemoiDatasetsDataModule):
+
+    def __init__(self, config: DictConfig) -> None:
+        super().__init__(config)
+
+    def _check_resolution(self, resolution: str) -> None:
+        LOGGER.info("Resolution check skipped for Zip dataset")
+
+    def data_indices(self) -> tuple[IndexCollection, ...]:
+        return ZipIndexCollection(self.config, self.ds_train.name_to_index)
+    #        return tuple(IndexCollection(self.config, name_to_index) for name_to_index in self.ds_train.name_to_index)
+
+    def _get_dataset(
+            self, 
+            data_reader: Callable, 
+            shuffle: bool = True, 
+            rollout: int = 1, 
+            label: str = "generic"
+        ) -> NativeGridDataset:
+        r = max(rollout, self.rollout)
+        data = ZipDataset(
+            data_reader=data_reader,
+            rollout=r,
+            multistep=self.config.training.multistep_input,
+            timeincrement=self.timeincrement,
+            model_comm_group_rank=self.model_comm_group_rank,
+            model_comm_group_id=self.model_comm_group_id,
+            model_comm_num_groups=self.model_comm_num_groups,
+            shuffle=shuffle,
+            label=label,
+        )
+        self._check_resolution(data.resolution)
+        return data
+    
+def ZipIndexCollection(config: DictConfig, name_to_index: tuple):
+    # Hacky solution - need to refactor IndexCollection
+    zip_return = ()
+    for dset_index, dset_config  in enumerate(config.data.zip):
+        temp_config = OmegaConf.create(OmegaConf.to_container(config))
+        temp_config.data = dset_config
+        temp_config.data.frequency = config.data.frequency
+        temp_config.data.timestep = config.data.timestep
+        zip_return += (IndexCollection(temp_config, name_to_index[dset_index]),)
+    
+    return zip_return
+

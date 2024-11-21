@@ -1,0 +1,70 @@
+defaults:
+- data: zip
+- dataloader: zip
+- diagnostics: evaluation
+- hardware: slurm
+- graph: stretched_grid
+- model: graphtransformer
+- training: default
+- override hydra/hydra_logging: disabled  
+- override hydra/job_logging: disabled 
+- _self_
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+
+
+dataloader:
+  batch_size:
+    training: 1
+    validation: 1
+    test: 1
+    predict: 1
+  dataset:
+    zip:
+      - cutout:
+        - dataset: ${hardware.paths.data}${hardware.files.dataset_lam}
+        - dataset: ${hardware.paths.data}${hardware.files.dataset}
+        adjust: all
+      - dataset: ${hardware.paths.data}${hardware.files.dataset_obs}
+    adjust: ["start", "end"]
+
+  training:
+    start: 2023-01-01
+    end: 2023-01-05
+  validation:
+    start: 2023-02-01
+    end: 2023-02-05
+  test:
+    start: 2023-02-10
+    end: 2023-02-15
+
+hardware:
+  paths:
+    data: /lustre/storeB/project/nwp/aifs/datasets/
+    output: /pfs/lustrep4//scratch/project_465001383/aifs/experiments/test-anemoi-training-2/
+    graph: ${hardware.paths.output}
+  files:
+    dataset: aifs-od-an-oper-0001-mars-o96-2016-2023-6h-v6.zarr
+    dataset_lam: aifs-meps-10km-2020-2024-6h-v6.zarr
+    dataset_obs: netatmo-5km-2020-2024-6h-v2.zarr
+    graph: test_aw_rescale.pt
+
+  num_gpus_per_model: 1
+  num_nodes: 1
+  num_gpus_per_node: 1
+
+diagnostics:
+  log:
+    mlflow:
+      enabled: False
+ 
+training:
+  node_loss_weights:
+    _target_: anemoi.training.losses.nodeweights.ReweightedGraphNodeAttribute
+    target_nodes: ${graph.data}
+    node_attribute: area_weight
+    scaled_attribute: cutout
+    weight_frac_of_total: 0.5

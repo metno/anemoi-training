@@ -248,6 +248,93 @@ class NativeGridDataset(IterableDataset):
             Timeincrement: {self.timeincrement}
         """
 
+class ZipDataset(NativeGridDataset):
+
+    def __init__(
+        self,
+        data_reader: Callable,
+        rollout: int = 1,
+        multistep: int = 1,
+        timeincrement: int = 1,
+        model_comm_group_rank: int = 0,
+        model_comm_group_id: int = 0,
+        model_comm_num_groups: int = 1,
+        shuffle: bool = True,
+        label: str = "generic",        
+    ) -> None:
+        self.label = label
+
+        self.data = data_reader
+
+        self.rollout = rollout
+        self.timeincrement = timeincrement
+
+        # lazy init
+        self.n_samples_per_epoch_total: int = 0
+        self.n_samples_per_epoch_per_worker: int = 0
+
+        # DDP-relevant info
+        self.model_comm_group_rank = model_comm_group_rank
+        self.model_comm_num_groups = model_comm_num_groups
+        self.model_comm_group_id = model_comm_group_id
+        self.global_rank = int(os.environ.get("SLURM_PROCID", "0"))
+
+        # additional state vars (lazy init)
+        self.n_samples_per_worker = 0
+        self.chunk_index_range: np.ndarray | None = None
+        self.shuffle = shuffle
+
+        # Data dimensions
+        self.multi_step = multistep
+        assert self.multi_step > 0, "Multistep value must be greater than zero."
+        self.ensemble_dim: int = 2
+        assert all(dset_shape[self.ensemble_dim] == self.data.shape[0][self.ensemble_dim] 
+                   for dset_shape in self.data.shape), "Ensemble size must match for all datasets"
+        self.ensemble_size = self.data.shape[0][self.ensemble_dim]
+
+    def __iter__(self) -> torch.Tensor:
+        """Return an iterator over the dataset.
+
+        The datasets are retrieved by Anemoi Datasets from zarr files. This iterator yields
+        chunked batches for DDP and sharded training.
+
+        Currently it receives data with an ensemble dimension, which is discarded for
+        now. (Until the code is "ensemble native".)
+        """
+        if self.shuffle:
+            shuffled_chunk_indices = self.rng.choice(
+                self.chunk_index_range,
+                size=self.n_samples_per_worker,
+                replace=False,
+            )
+        else:
+            shuffled_chunk_indices = self.chunk_index_range
+
+        LOGGER.debug(
+            (
+                "Worker pid %d, label %s, worker id %d, global_rank %d, "
+                "model comm group %d, group_rank %d using indices[0:10]: %s"
+            ),
+            os.getpid(),
+            self.label,
+            self.worker_id,
+            self.global_rank,
+            self.model_comm_group_id,
+            self.model_comm_group_rank,
+            shuffled_chunk_indices[:10],
+        )
+
+        for i in shuffled_chunk_indices:
+            start = i - (self.multi_step - 1) * self.timeincrement
+            end = i + (self.rollout + 1) * self.timeincrement
+
+            x = self.data[start : end : self.timeincrement]
+            x = tuple(torch.from_numpy(rearrange(data , "dates variables ensemble gridpoints -> dates ensemble gridpoints variables")) for data in x)
+            self.ensemble_dim = 1
+
+            yield x           
+        
+        
 
 def worker_init_func(worker_id: int) -> None:
     """Configures each dataset worker process.
