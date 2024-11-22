@@ -226,6 +226,7 @@ class AnemoiDatasetsZipModule(AnemoiDatasetsDataModule):
     def _check_resolution(self, resolution: str) -> None:
         LOGGER.info("Resolution check skipped for Zip dataset")
 
+    @cached_property
     def data_indices(self) -> tuple[IndexCollection, ...]:
         return ZipIndexCollection(self.config, self.ds_train.name_to_index)
     #        return tuple(IndexCollection(self.config, name_to_index) for name_to_index in self.ds_train.name_to_index)

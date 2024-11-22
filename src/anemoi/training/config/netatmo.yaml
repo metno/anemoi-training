@@ -62,6 +62,14 @@ diagnostics:
       enabled: False
  
 training:
+#  training_loss:
+#    - _target_: anemoi.training.losses.mse.WeightedMSELoss
+#      scalars: ['variable']
+#      ignore_nans: False
+#    - _target_: anemoi.training.losses.mse.WeightedMSELoss
+#      scalars: ['variable']
+#      ignore_nans: False#
+
   node_loss_weights:
     _target_: anemoi.training.losses.nodeweights.ReweightedGraphNodeAttribute
     target_nodes: ${graph.data}

@@ -5,12 +5,14 @@ import os
 from anemoi.training.train.forecaster import GraphForecaster
 import pytorch_lightning as pl
 import torch
-from anemoi.models.interface import FuserModelInterface
+from anemoi.models.interface import AnemoiModelInterface
 from anemoi.utils.config import DotDict
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 from torch_geometric.data import HeteroData
+from torch.distributed.distributed_c10d import ProcessGroup
+
 
 from anemoi.training.losses.utils import grad_scaler
 from anemoi.training.utils.jsonify import map_config_to_primitives
@@ -19,7 +21,7 @@ from anemoi.training.utils.masks import NoOutputMask
 
 LOGGER = logging.getLogger(__name__)
 
-class NetatmoGraphForecaster(GraphForecaster):
+class NetatmoGraphForecaster(pl.LightningModule):
 
     def __init__(
         self,
@@ -30,28 +32,29 @@ class NetatmoGraphForecaster(GraphForecaster):
         data_indices: tuple,
         metadata: dict,
     ) -> None:
-        pl.LigthningModule.__init__()
+        super().__init__()
 
         graph_data = graph_data.to(self.device)
-        
+        '''
         #TODO use AnemoiModelInterface here if that works
-        self.model = FuserModelInterface(
+        self.model = AnemoiModelInterface(
             statistics=statistics,
             data_indices=data_indices,
             metadata=metadata,
             graph_data=graph_data,
             config=DotDict(map_config_to_primitives(OmegaConf.to_container(config, resolve=True))),
         )
-
+        '''
         self.data_indices = data_indices
 
         self.save_hyperparameters()
 
-        self.latlons_data = tuple(graph_data[mesh].x for mesh in config.graph.) #TODO
-        self.node_weights = self.get_node_weights(config, graph_data)
+#        self.latlons_data = tuple(graph_data[mesh].x for mesh in config.graph.) #TODO
+        self.node_weights = self.get_node_weights(config, graph_data) #TODO
 
         #TODO
         if config.model.get("output_mask", None) is not None:
+            raise NotImplementedError("output mask not supported in NetatmoGraphForecaster")
             self.output_mask = Boolean1DMask(graph_data[config.graph.data][config.model.output_mask])
         else:
             self.output_mask = NoOutputMask()
@@ -63,25 +66,26 @@ class NetatmoGraphForecaster(GraphForecaster):
 
         _, self.val_metric_ranges = self.get_val_metric_ranges(config, data_indices) #TODO
 
-        loss_kwargs = {"node_weights": self.node_weights}
+        loss_kwargs = tuple({"node_weights": node_weights} for node_weights in self.node_weights)
 
-        scalars = {"variable": (-1, variable_scaling)}
+        scalars = tuple({"variable": (-1, scaling)} for scaling in variable_scaling)
+
+        self.loss = torch.nn.ModuleList(
+            [GraphForecaster.get_loss_function(
+                loss_config, 
+                scalars=scalars[i],
+                **loss_kwargs[i], 
+            )
+            for i, loss_config in enumerate(config.training.training_loss)
+            ],
+        )
 
         #TODO
-        self.loss = self.get_loss_function(config.training.training_loss, scalars=scalars, **loss_kwargs)
-
-        assert isinstance(self.loss, torch.nn.Module) and not isinstance(
-            self.loss,
-            torch.nn.ModuleList,
-        ), f"Loss function must be a `torch.nn.Module`, not a {type(self.loss).__name__!r}"
-        
-        #TODO
-        self.metrics = self.get_loss_function(config.training.validation_metrics, scalars=scalars, **loss_kwargs)
-        if not isinstance(self.metrics, torch.nn.ModuleList):
-            self.metrics = torch.nn.ModuleList([self.metrics])
+#        self.metrics = self.get_loss_function(config.training.validation_metrics, scalars=scalars, **loss_kwargs)
 
         if config.training.loss_gradient_scaling:
-            self.loss.register_full_backward_hook(grad_scaler, prepend=False)
+            raise NotImplementedError("Loss gradient scaling not available for NetatmoGraphForecaster")
+#            self.loss.register_full_backward_hook(grad_scaler, prepend=False)
 
         self.multi_step = config.training.multistep_input
         self.lr = (
@@ -111,7 +115,60 @@ class NetatmoGraphForecaster(GraphForecaster):
             config.hardware.num_gpus_per_node * config.hardware.num_nodes / config.hardware.num_gpus_per_model,
         )
 
+    def forward(self, x: tuple[torch.Tensor]) -> tuple[torch.Tensor]:
+        return self.model(x, self.model_comm_group)
 
+    @staticmethod
+    def get_val_metric_ranges(
+        config: DictConfig, 
+        data_indices: tuple
+    ) -> tuple[dict, dict]:
+        return tuple(GraphForecaster.get_val_metric_ranges(config, data_index) for data_index in data_indices)
 
+    @staticmethod
+    def get_variable_scaling(
+        config: DictConfig,
+        data_indices: tuple
+    ) -> tuple:
+        return tuple(GraphForecaster.get_variable_scaling(config, data_index) for data_index in data_indices)
 
+    @staticmethod
+    def get_node_weights(
+        config: DictConfig,
+        graph_data: HeteroData
+    ) -> tuple:
+        print("get_node_weights not implemented")
+        return (torch.tensor([0., 0.]), torch.tensor([0., 0.]))
 
+    def set_model_comm_group(self, model_comm_group: ProcessGroup) -> None:
+        LOGGER.debug("set_model_comm_group: %s", model_comm_group)
+        self.model_comm_group = model_comm_group
+
+    #TODO: Figure out what to do with self.output_mask
+    def advance_input(
+        self,
+        x: tuple[torch.Tensor],
+        y_pred: tuple[torch.Tensor],
+        batch: tuple[torch.Tensor],
+        rollout_step: int,
+    ) -> tuple[torch.Tensor]:
+        
+        for x_elem, y_elem, batch_elem, data_indices in zip(x, y_pred, batch, self.data_indices):
+            x_elem = x_elem.roll(-1, dims=1)
+            x_elem[:, -1, :, :, data_indices.internal_model.input.prognostic] = y_elem[
+            ...,
+            data_indices.internal_model.output.prognostic,
+            ]
+
+            x_elem[:, -1] = self.output_mask.rollout_boundary(x_elem[:, -1], batch_elem[:, -1], data_indices)
+
+            # get new "constants" needed for time-varying fields
+            x_elem[:, -1, :, :, data_indices.internal_model.input.forcing] = batch_elem[
+                :,
+                self.multi_step + rollout_step,
+                :,
+                :,
+                data_indices.internal_data.input.forcing,
+            ]
+        return x
+    

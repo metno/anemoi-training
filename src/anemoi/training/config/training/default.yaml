@@ -43,13 +43,19 @@ zero_optimizer: False
 
 # loss function for the model
 training_loss:
+  - _target_: anemoi.training.losses.mse.WeightedMSELoss
+    scalars: ['variable']
+    ignore_nans: False
+  - _target_: anemoi.training.losses.mse.WeightedMSELoss
+    scalars: ['variable']
+    ignore_nans: False
   # loss class to initialise
-  _target_: anemoi.training.losses.mse.WeightedMSELoss
+#  _target_: anemoi.training.losses.mse.WeightedMSELoss
   # Scalars to include in loss calculation
   # Available scalars include:
   # - 'variable': See `variable_loss_scaling` for more information
-  scalars: ['variable']
-  ignore_nans: False
+#  scalars: ['variable']
+#  ignore_nans: False
 
 loss_gradient_scaling: False
 
