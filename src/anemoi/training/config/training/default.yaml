@@ -43,15 +43,19 @@ zero_optimizer: False
 
 # loss function for the model
 training_loss:
+  - _target_: anemoi.training.losses.mse.WeightedMSELoss
+    scalars: ['variable']
+    ignore_nans: False
+  - _target_: anemoi.training.losses.mse.WeightedMSELoss
+    scalars: ['variable']
+    ignore_nans: False
   # loss class to initialise
-  _target_: anemoi.training.losses.mse.WeightedMSELoss
+#  _target_: anemoi.training.losses.mse.WeightedMSELoss
   # Scalars to include in loss calculation
   # Available scalars include:
   # - 'variable': See `variable_loss_scaling` for more information
-  # - 'loss_weights_mask': Giving imputed NaNs a zero weight in the loss function
-  scalars: ['variable', 'loss_weights_mask']
-
-  ignore_nans: False
+#  scalars: ['variable']
+#  ignore_nans: False
 
 loss_gradient_scaling: False
 
@@ -83,7 +87,6 @@ lr:
   rate: 0.625e-4 #local_lr
   iterations: ${training.max_steps} # NOTE: When max_epochs < max_steps, scheduler will run for max_steps
   min: 3e-7 #Not scaled by #GPU
-  warmup_t: 1000
 
 # Changes in per-gpu batch_size should come with a rescaling of the local_lr
 # in order to keep a constant global_lr
