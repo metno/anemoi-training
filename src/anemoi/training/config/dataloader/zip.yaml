@@ -35,8 +35,20 @@ limit_batches:
 # You can make these as complicated for merging as you like
 # See https://anemoi-datasets.readthedocs.io
 # ============
+dataset_data:
+  cutout:
+  - dataset: ${hardware.paths.data}${hardware.files.dataset_lam}
+  - dataset: ${hardware.paths.data}${hardware.files.dataset}
+  adjust: all
 
-dataset: ${hardware.paths.data}/${hardware.files.dataset}
+dataset_obs:
+  dataset: ${hardware.paths.data}${hardware.files.dataset_obs}
+
+dataset:
+  zip:
+    - ${dataloader.dataset_data}
+    - ${dataloader.dataset_obs}
+  adjust: ["start", "end"]
 
 training:
   dataset: ${dataloader.dataset}

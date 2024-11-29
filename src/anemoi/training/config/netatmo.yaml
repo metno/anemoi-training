@@ -3,12 +3,13 @@ defaults:
 - dataloader: zip
 - diagnostics: evaluation
 - hardware: slurm
-- graph: stretched_grid
-- model: graphtransformer
-- training: default
+- graph: netatmo
+- model: fuser
+- training: zip
 - override hydra/hydra_logging: disabled  
 - override hydra/job_logging: disabled 
 - _self_
+- override diagnostics/plot: none
 
 hydra:  
   output_subdir: null  
@@ -17,6 +18,9 @@ hydra:
 
 
 dataloader:
+  dataloader_module: anemoi.training.data.datamodule
+  dataloader_func: AnemoiDatasetsZipModule
+
   batch_size:
     training: 1
     validation: 1
@@ -32,7 +36,7 @@ dataloader:
     adjust: ["start", "end"]
 
   training:
-    start: 2023-01-01
+    start: 2021-01-01
     end: 2023-01-05
   validation:
     start: 2023-02-01
@@ -43,14 +47,14 @@ dataloader:
 
 hardware:
   paths:
-    data: /lustre/storeB/project/nwp/aifs/datasets/
-    output: /pfs/lustrep4//scratch/project_465001383/aifs/experiments/test-anemoi-training-2/
+    data: null #/lustre/storeB/project/nwp/aifs/datasets/
+    output: null #/home/havardhh/Documents/2024V/met-aifs/netatmo-anemoi-training/test-output/
     graph: ${hardware.paths.output}
   files:
     dataset: aifs-od-an-oper-0001-mars-o96-2016-2023-6h-v6.zarr
     dataset_lam: aifs-meps-10km-2020-2024-6h-v6.zarr
     dataset_obs: netatmo-5km-2020-2024-6h-v2.zarr
-    graph: test_aw_rescale.pt
+    graph: netatmo_test_graph.pt
 
   num_gpus_per_model: 1
   num_nodes: 1
@@ -60,6 +64,9 @@ diagnostics:
   log:
     mlflow:
       enabled: False
+
+model:
+  num_channels: 64
  
 training:
 #  training_loss:
@@ -69,10 +76,16 @@ training:
 #    - _target_: anemoi.training.losses.mse.WeightedMSELoss
 #      scalars: ['variable']
 #      ignore_nans: False#
+  train_module: anemoi.training.train.netatmo_forecaster
+  train_function: NetatmoGraphForecaster
+  dataset_loss_scaling: [1.0, 0.5]
 
   node_loss_weights:
-    _target_: anemoi.training.losses.nodeweights.ReweightedGraphNodeAttribute
-    target_nodes: ${graph.data}
+  - _target_: anemoi.training.losses.nodeweights.ReweightedGraphNodeAttribute
+    target_nodes: ${graph.input_nodes.data}
     node_attribute: area_weight
     scaled_attribute: cutout
     weight_frac_of_total: 0.5
+  - _target_: anemoi.training.losses.nodeweights.GraphNodeAttribute
+    target_nodes: ${graph.input_nodes.netatmo}
+    node_attribute: area_weight

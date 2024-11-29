@@ -1,0 +1,81 @@
+overwrite: False
+
+input_nodes:
+  data: "data"
+  netatmo: "netatmo"
+
+hidden: "hidden"
+
+nodes:
+  data:
+    node_builder:
+      _target_: anemoi.graphs.nodes.ZarrDatasetNodes
+      dataset: ${dataloader.dataset_data}
+    attributes:
+      area_weight:
+        _target_: anemoi.graphs.nodes.attributes.AreaWeights
+        norm: unit-max
+      cutout:
+        _target_: anemoi.graphs.nodes.attributes.CutOutMask
+  netatmo: 
+    node_builder:
+      _target_: anemoi.graphs.nodes.ZarrDatasetNodes
+      dataset: ${dataloader.dataset_obs}
+    attributes:
+      area_weight:
+        _target_: anemoi.graphs.nodes.attributes.UniformWeights
+        norm: unit-max
+  hidden:
+    node_builder:
+      _target_: anemoi.graphs.nodes.StretchedTriNodes
+      lam_resolution: 8
+      global_resolution: 5
+      reference_node_name: ${graph.input_nodes.data}
+      mask_attr_name: cutout
+      margin_radius_km: 11
+
+
+edges:
+# Encoder
+- source_name: ${graph.input_nodes.data}
+  target_name: ${graph.hidden}
+  edge_builder:
+    _target_: anemoi.graphs.edges.KNNEdges
+    num_nearest_neighbours: 12
+  attributes: ${graph.attributes.edges}
+- source_name: ${graph.input_nodes.netatmo}
+  target_name: ${graph.hidden}
+  edge_builder:
+    _target_: anemoi.graphs.edges.CutOffEdges
+    cutoff_factor: 0.075
+  attributes: ${graph.attributes.edges}
+# Processor
+- source_name: ${graph.hidden}
+  target_name: ${graph.hidden}
+  edge_builder:
+    _target_: anemoi.graphs.edges.MultiScaleEdges
+    x_hops: 1
+  attributes: ${graph.attributes.edges}
+# Decoder
+- source_name: ${graph.hidden}
+  target_name: ${graph.input_nodes.data}
+  edge_builder:
+    _target_: anemoi.graphs.edges.KNNEdges
+    num_nearest_neighbours: 3
+  attributes: ${graph.attributes.edges}
+- source_name: ${graph.hidden}
+  target_name: ${graph.input_nodes.netatmo}
+  edge_builder:
+    _target_: anemoi.graphs.edges.KNNEdges
+    num_nearest_neighbours: 3
+  attributes: ${graph.attributes.edges}
+
+
+attributes:
+  edges:
+    edge_length:
+      _target_: anemoi.graphs.edges.attributes.EdgeLength
+      norm: unit-max
+    edge_dirs:
+      _target_: anemoi.graphs.edges.attributes.EdgeDirection
+      norm: unit-std

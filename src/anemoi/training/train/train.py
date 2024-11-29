@@ -16,6 +16,7 @@ import os
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
+import importlib
 
 import hydra
 import numpy as np
@@ -79,10 +80,18 @@ class AnemoiTrainer:
         self._log_information()
 
     @cached_property
-    def datamodule(self) -> AnemoiDatasetsDataModule:
+    def datamodule(self) -> pl.LightningModule:
         """DataModule instance and DataSets."""
-        datamodule = AnemoiDatasetsDataModule(self.config)
-        self.config.data.num_features = len(datamodule.ds_train.data.variables)
+        kwargs = {
+            "config": self.config
+        }
+        dataloader_module = importlib.import_module(getattr(self.config.dataloader, "dataloader_module", "anemoi.training.data.datamodule"))
+        dataloader_func = getattr(dataloader_module, getattr(self.config.dataloader, "dataloader_func", "AnemoiDatasetsDataModule"))
+        datamodule = dataloader_func(**kwargs)
+        if isinstance(datamodule.ds_train.data.name_to_index, tuple):
+            self.config.data.num_features = tuple(len(name_to_index) for name_to_index in datamodule.ds_train.data.name_to_index)
+        else:
+            self.config.data.num_features = len(datamodule.ds_train.data.variables)
         return datamodule
 
     @cached_property
@@ -135,7 +144,7 @@ class AnemoiTrainer:
         )
 
     @cached_property
-    def model(self) -> GraphForecaster:
+    def model(self) -> pl.LighningModule:
         """Provide the model instance."""
         kwargs = {
             "config": self.config,
@@ -144,10 +153,13 @@ class AnemoiTrainer:
             "metadata": self.metadata,
             "statistics": self.datamodule.statistics,
         }
+        train_module = importlib.import_module(getattr(self.config.training, "train_module", "anemoi.training.train.forecaster"))
+        train_func = getattr(train_module, getattr(self.config.training, "train_function", "GraphForecaster"))
+
         if self.load_weights_only:
             LOGGER.info("Restoring only model weights from %s", self.last_checkpoint)
-            return GraphForecaster.load_from_checkpoint(self.last_checkpoint, **kwargs)
-        return GraphForecaster(**kwargs)
+            return train_func.load_from_checkpoint(self.last_checkpoint, **kwargs)
+        return train_func(**kwargs)
 
     @rank_zero_only
     def _get_mlflow_run_id(self) -> str:
@@ -285,9 +297,9 @@ class AnemoiTrainer:
 
     def _log_information(self) -> None:
         # Log number of variables (features)
-        num_fc_features = len(self.datamodule.ds_train.data.variables) - len(self.config.data.forcing)
-        LOGGER.debug("Total number of prognostic variables: %d", num_fc_features)
-        LOGGER.debug("Total number of auxiliary variables: %d", len(self.config.data.forcing))
+        #num_fc_features = len(self.datamodule.ds_train.data.variables) - len(self.config.data.forcing)
+        #LOGGER.debug("Total number of prognostic variables: %d", num_fc_features)
+        #LOGGER.debug("Total number of auxiliary variables: %d", len(self.config.data.forcing))
 
         # Log learning rate multiplier when running single-node, multi-GPU and/or multi-node
         total_number_of_model_instances = (
