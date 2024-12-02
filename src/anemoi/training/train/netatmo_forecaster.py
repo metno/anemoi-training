@@ -226,7 +226,7 @@ class NetatmoGraphForecaster(pl.LightningModule):
 
             x = self.advance_input(x, y_pred, batch, rollout_step)
 
-            metrics_next = [{}]*len(batch)
+            metrics_next = [{} for _ in range(len(batch))]
             if validation_mode:
                 metrics_next = self.calculate_val_metrics( #TODO: implement this to return tuple
                     y_pred,
@@ -245,8 +245,8 @@ class NetatmoGraphForecaster(pl.LightningModule):
         num_dsets = len(batch)
         loss = [torch.zeros(1, dtype=batch[i].dtype, device=self.device, requires_grad=False)
                                  for i in range(num_dsets)]
-        metrics = [{}]*num_dsets
-        y_preds = [[]]*num_dsets
+        metrics = [{} for _ in range(num_dsets)]
+        y_preds = [[] for _ in range(num_dsets)]
 
         for loss_next, metrics_next, y_preds_next in self.rollout_step(
             batch,
@@ -271,10 +271,9 @@ class NetatmoGraphForecaster(pl.LightningModule):
         rollout_step: int
     ) -> list:
         num_dsets = len(y_pred)
-        metrics = [{}]*num_dsets
-
+        metrics = [{} for _ in range(num_dsets)]
         y_postprocessed = self.model.post_processors(y, in_place=False)
-        y_pred_postprocessed = self.model.post_processors(y, in_place=False)
+        y_pred_postprocessed = self.model.post_processors(y_pred, in_place=False)
 
         for dset, metric in enumerate(self.metrics.losses):
             metric_name = getattr(metric, "name", metric.__class__.__name__.lower())
@@ -283,15 +282,15 @@ class NetatmoGraphForecaster(pl.LightningModule):
                 metrics[dset][f"{metric_name}/{rollout_step + 1}"] = metric(
                 y_pred_postprocessed[dset],
                 y_postprocessed[dset],
-            )
-            continue
+                )
+                continue
+            for mkey, indices in self.val_metric_ranges[dset].items():
+                metrics[dset][f"{metric_name}/{mkey}/{rollout_step + 1}"] = metric(
+                    y_pred_postprocessed[dset][..., indices],
+                    y_postprocessed[dset][..., indices],
+                    scalar_indices=[..., indices],
+                )
 
-        for mkey, indices in self.val_metric_ranges[dset].items():
-            metrics[dset][f"{metric_name}/{mkey}/{rollout_step + 1}"] = metric(
-                y_pred_postprocessed[dset][..., indices],
-                y_postprocessed[dset][..., indices],
-                scalar_indices=[..., indices],
-            )
         
         return metrics
     
@@ -370,7 +369,7 @@ class NetatmoGraphForecaster(pl.LightningModule):
         )
         for dset, loss in enumerate(val_loss):
             self.log(
-                f"val_{getattr(self.loss.losses[dset], 'name', self.loss.losses[dset].__class__.__name__.lower())}_{dset}",
+                f"val_{getattr(self.loss.losses[dset], 'name', self.loss.losses[dset].__class__.__name__.lower())}_dset{dset}",
                 loss,
                 on_epoch=True,
                 on_step=True,
@@ -381,7 +380,7 @@ class NetatmoGraphForecaster(pl.LightningModule):
             )
             for mname, mvalue in metrics[dset].items():
                 self.log(
-                    f"val_{mname}_dset",
+                    f"val_{mname}_dset{dset}",
                     mvalue,
                     on_epoch=True,
                     on_step=False,

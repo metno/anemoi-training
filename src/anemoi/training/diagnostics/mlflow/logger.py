@@ -433,13 +433,16 @@ class AnemoiMLflowLogger(MLFlowLogger):
     def log_system_metrics(self) -> None:
         """Log system metrics (CPU, GPU, etc)."""
         import mlflow
-        import psutil
-        from mlflow.system_metrics.metrics.base_metrics_monitor import BaseMetricsMonitor
+#        import psutil
+#        from mlflow.system_metrics.metrics.base_metrics_monitor import BaseMetricsMonitor
         from mlflow.system_metrics.metrics.disk_monitor import DiskMonitor
-        from mlflow.system_metrics.metrics.gpu_monitor import GPUMonitor
+#        from mlflow.system_metrics.metrics.gpu_monitor import GPUMonitor
         from mlflow.system_metrics.metrics.network_monitor import NetworkMonitor
         from mlflow.system_metrics.system_metrics_monitor import SystemMetricsMonitor
-
+        from anemoi.training.diagnostics.mlflow.system_metrics.cpu_monitor import CPUMonitor
+        from anemoi.training.diagnostics.mlflow.system_metrics.gpu_monitor import GreenGPUMonitor
+        from anemoi.training.diagnostics.mlflow.system_metrics.gpu_monitor import RedGPUMonitor
+        '''
         class CustomCPUMonitor(BaseMetricsMonitor):
             """Class for monitoring CPU stats.
 
@@ -468,21 +471,30 @@ class AnemoiMLflowLogger(MLFlowLogger):
 
             def aggregate_metrics(self) -> dict[str, int]:
                 return {k: round(sum(v) / len(v), 1) for k, v in self._metrics.items()}
-
+        '''
         class CustomSystemMetricsMonitor(SystemMetricsMonitor):
             def __init__(self, run_id: str, resume_logging: bool = False):
                 super().__init__(run_id, resume_logging=resume_logging)
 
                 # Replace the CPUMonitor with custom implementation
-                self.monitors = [CustomCPUMonitor(), DiskMonitor(), NetworkMonitor()]
+#                self.monitors = [CustomCPUMonitor(), DiskMonitor(), NetworkMonitor()]
+                self.monitors = [CPUMonitor(), DiskMonitor(), NetworkMonitor()]
                 try:
-                    gpu_monitor = GPUMonitor()
+#                    gpu_monitor = GPUMonitor()
+                    gpu_monitor = GreenGPUMonitor()
                     self.monitors.append(gpu_monitor)
-                except ImportError:
-                    LOGGER.warning(
-                        "`pynvml` is not installed, to log GPU metrics please run `pip install pynvml` \
-                            to install it",
-                    )
+#                except ImportError:
+#                    LOGGER.warning(
+#                        "`pynvml` is not installed, to log GPU metrics please run `pip install pynvml` \
+#                            to install it",
+#                    )
+                except (ImportError, RuntimeError) as e:
+                    LOGGER.warning("Failed to init Nvidia GPU Monitor: %s", e)
+                try:
+                    gpu_monitor = RedGPUMonitor()
+                    self.monitors.append(gpu_monitor)
+                except (ImportError, RuntimeError) as e:
+                    LOGGER.warning("Failed to init AMD GPU Monitor: %s", e)                
 
         mlflow.enable_system_metrics_logging()
         system_monitor = CustomSystemMetricsMonitor(
