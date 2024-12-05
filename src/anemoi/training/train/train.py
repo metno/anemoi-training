@@ -145,7 +145,15 @@ class AnemoiTrainer:
         }
         if self.load_weights_only:
             LOGGER.info("Restoring only model weights from %s", self.last_checkpoint)
-            return GraphForecaster.load_from_checkpoint(self.last_checkpoint, **kwargs)
+
+            model_ckpt = torch.load(self.last_checkpoint, 'cpu')
+            model = GraphForecaster(**kwargs)
+
+            for name, param in model.named_parameters():
+                param.data = model_ckpt['state_dict'][name].data
+
+            return model
+        
         return GraphForecaster(**kwargs)
 
     @rank_zero_only
