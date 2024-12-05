@@ -60,11 +60,6 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
         if not self.config.dataloader.get("pin_memory", True):
             LOGGER.info("Data loader memory pinning disabled.")
 
-    def _check_resolution(self, resolution: str) -> None:
-        assert (
-            self.config.data.resolution.lower() == resolution.lower()
-        ), f"Network resolution {self.config.data.resolution=} does not match dataset resolution {resolution=}"
-
     @cached_property
     def statistics(self) -> dict:
         return self.ds_train.statistics
@@ -116,10 +111,12 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
     def ds_valid(self) -> NativeGridDataset:
         r = max(self.rollout, self.config.dataloader.get("validation_rollout", 1))
 
-        assert self.config.dataloader.training.end < self.config.dataloader.validation.start, (
-            f"Training end date {self.config.dataloader.training.end} is not before"
-            f"validation start date {self.config.dataloader.validation.start}"
-        )
+        if not self.config.dataloader.training.end < self.config.dataloader.validation.start:
+            LOGGER.warning(
+                "Training end date %s is not before validation start date %s.",
+                self.config.dataloader.training.end,
+                self.config.dataloader.validation.start,
+            )
         return self._get_dataset(
             open_dataset(OmegaConf.to_container(self.config.dataloader.validation, resolve=True)),
             shuffle=False,
@@ -151,7 +148,7 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
         label: str = "generic",
     ) -> NativeGridDataset:
         r = max(rollout, self.rollout)
-        data = NativeGridDataset(
+        return NativeGridDataset(
             data_reader=data_reader,
             rollout=r,
             multistep=self.config.training.multistep_input,
@@ -159,8 +156,6 @@ class AnemoiDatasetsDataModule(pl.LightningDataModule):
             shuffle=shuffle,
             label=label,
         )
-        self._check_resolution(data.resolution)
-        return data
 
     def _get_dataloader(self, ds: NativeGridDataset, stage: str) -> DataLoader:
         assert stage in {"training", "validation", "test"}
