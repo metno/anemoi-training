@@ -1,5 +1,6 @@
 activation: GELU
 num_channels: 1024
+use_obs_fuser: True
 
 model:
   _target_: anemoi.models.models.obsfuser.AnemoiObsFuser

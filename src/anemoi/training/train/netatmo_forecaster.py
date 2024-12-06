@@ -319,7 +319,7 @@ class NetatmoGraphForecaster(pl.LightningModule):
         )
         for dset, loss in enumerate(train_loss):
             self.log(
-                f"train_{getattr(self.loss.losses[dset], 'name', self.loss.losses[dset].__class__.__name__.lower())}_{dset}",
+                f"train_{getattr(self.loss.losses[dset], 'name', self.loss.losses[dset].__class__.__name__.lower())}_dset{dset}",
                 loss,
                 on_epoch=True,
                 on_step=True,
