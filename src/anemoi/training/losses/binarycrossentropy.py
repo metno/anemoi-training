@@ -14,6 +14,8 @@ import logging
 
 import torch
 
+import torch.nn as nn
+
 from anemoi.training.losses.weightedloss import BaseWeightedLoss
 
 LOGGER = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ class BinaryCrossEntropyLoss(BaseWeightedLoss):
             ignore_nans=ignore_nans,
             **kwargs,
         )
+        # self.bce_loss_with_logits = nn.BCEWithLogitsLoss()
+        self.bce_loss = nn.BCELoss()
 
     def forward(
         self,
@@ -76,6 +80,5 @@ class BinaryCrossEntropyLoss(BaseWeightedLoss):
         torch.Tensor
             Weighted binary cross entropy loss
         """
-        out = torch.binary_cross_entropy_with_logits(pred, target)
-        out = self.scale(out, scalar_indices, without_scalars=without_scalars)
-        return self.scale_by_node_weights(out, squash)
+        with torch.cuda.amp.autocast(enabled=False):
+            return self.bce_loss(pred.float(), target.float())  # BCE likes floats.
