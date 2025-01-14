@@ -35,6 +35,7 @@ from anemoi.training.diagnostics.logger import get_tensorboard_logger
 from anemoi.training.diagnostics.logger import get_wandb_logger
 from anemoi.training.distributed.strategy import DDPGroupStrategy
 from anemoi.training.train.forecaster import GraphForecaster
+from anemoi.training.utils.checkpoint import transfer_learning_loading
 from anemoi.training.utils.jsonify import map_config_to_primitives
 from anemoi.training.utils.seeding import get_base_seed
 
@@ -65,7 +66,7 @@ class AnemoiTrainer:
 
         # Default to not warm-starting from a checkpoint
         self.start_from_checkpoint = bool(self.config.training.run_id) or bool(self.config.training.fork_run_id)
-        self.load_weights_only = config.training.load_weights_only
+        self.load_weights_only = self.config.training.load_weights_only
         self.parent_uuid = None
 
         self.config.training.run_id = self.run_id
@@ -155,11 +156,17 @@ class AnemoiTrainer:
         }
         train_module = importlib.import_module(getattr(self.config.training, "train_module", "anemoi.training.train.forecaster"))
         train_func = getattr(train_module, getattr(self.config.training, "train_function", "GraphForecaster"))
+        model = train_func(**kwargs)
 
         if self.load_weights_only:
+            if self.config.training.transfer_learning:
+                LOGGER.info("Loading weights with Transfer Learning from %s", self.last_checkpoint)
+                model = transfer_learning_loading(model, self.last_checkpoint)
+            
             LOGGER.info("Restoring only model weights from %s", self.last_checkpoint)
-            return train_func.load_from_checkpoint(self.last_checkpoint, **kwargs)
-        return train_func(**kwargs)
+            model = train_func.load_from_checkpoint(self.last_checkpoint, **kwargs)
+
+        return model
 
     @rank_zero_only
     def _get_mlflow_run_id(self) -> str:
