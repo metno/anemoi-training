@@ -18,6 +18,8 @@ import torch.nn as nn
 from anemoi.utils.checkpoints import save_metadata
 
 from anemoi.training.train.forecaster import GraphForecaster
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,4 +86,40 @@ def transfer_learning_loading(model: torch.nn.Module, ckpt_path: Path | str) -> 
             del state_dict[key]  # Remove the mismatched key
     # Load the filtered st-ate_dict into the model
     model.load_state_dict(state_dict, strict=False)
+    return model
+
+def transfer_learning_loading_with_layer_dict(
+        model: torch.nn.Module, 
+        ckpt_path: Path | str, 
+        layer_dict: dict
+        ) -> nn.Module:
+    checkpoint = torch.load(ckpt_path, map_location = model.device)
+    state_dict = checkpoint["state_dict"]
+
+    for mname, mparameter in model.named_parameters():
+        cname = mname
+        for old_name, new_name in layer_dict.items():
+            if new_name in cname:
+                cname = mname.replace(new_name, old_name)
+        
+
+        if rank_zero_only.rank == 0:
+            print(f"cname: {cname}")
+            print(f"mname: {mname}")
+        if cname in state_dict:
+            #LOGGER.info("Replacing layer %s in model with layer %s from old checkpoint", mname, cname)
+            if rank_zero_only.rank == 0:
+                print(f"Replacing layer {mname} in model with layer {cname} from old checkpoint")
+            mparameter.data = state_dict[cname].data
+
+    return model
+
+def freeze_weights(model: torch.nn.Module, layers: list[str]) -> torch.nn.Module:
+    for mname, mparameter in model.named_parameters():
+        for layer_name in layers:
+            if layer_name in mname:
+                if rank_zero_only.rank == 0:
+                    print(f"freezing layer {mname}")
+                mparameter.requires_grad = False
+
     return model

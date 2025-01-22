@@ -35,7 +35,7 @@ from anemoi.training.diagnostics.logger import get_tensorboard_logger
 from anemoi.training.diagnostics.logger import get_wandb_logger
 from anemoi.training.distributed.strategy import DDPGroupStrategy
 from anemoi.training.train.forecaster import GraphForecaster
-from anemoi.training.utils.checkpoint import transfer_learning_loading
+from anemoi.training.utils.checkpoint import transfer_learning_loading, transfer_learning_loading_with_layer_dict, freeze_weights
 from anemoi.training.utils.jsonify import map_config_to_primitives
 from anemoi.training.utils.seeding import get_base_seed
 
@@ -163,9 +163,17 @@ class AnemoiTrainer:
                 LOGGER.info("Loading weights with Transfer Learning from %s", self.last_checkpoint)
                 model = transfer_learning_loading(model, self.last_checkpoint)
             
-            LOGGER.info("Restoring only model weights from %s", self.last_checkpoint)
-            model = train_func.load_from_checkpoint(self.last_checkpoint, **kwargs)
+            elif self.config.training.transfer_learning_with_layer_dict:
+                #LOGGER.info("Loading weights with Transfer Learning using layer dict from %s", self.last_checkpoint)
+                print(f"Loading weights with Transfer Learning using layer dict from {self.last_checkpoint}")
+                model = transfer_learning_loading_with_layer_dict(model, self.last_checkpoint, self.config.training.layer_dict)
 
+            else:
+                LOGGER.info("Restoring only model weights from %s", self.last_checkpoint)
+                model = train_func.load_from_checkpoint(self.last_checkpoint, **kwargs)
+
+            if self.config.training.freeze_layers.active:
+                model = freeze_weights(model, self.config.training.freeze_layers.layers)
         return model
 
     @rank_zero_only
