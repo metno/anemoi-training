@@ -21,10 +21,10 @@ from anemoi.training.losses.weightedloss import BaseWeightedLoss
 LOGGER = logging.getLogger(__name__)
 
 
-class BinaryCrossEntropyLoss(BaseWeightedLoss):
+class BinaryCrossEntropyWithLogitsLoss(BaseWeightedLoss):
     """Node-weighted binary cross entropy loss."""
 
-    name = "binarycrossentropy"
+    name = "binarycrossentropywithlogits"
 
     def __init__(
         self,
@@ -48,8 +48,7 @@ class BinaryCrossEntropyLoss(BaseWeightedLoss):
             ignore_nans=ignore_nans,
             **kwargs,
         )
-        # self.bce_loss_with_logits = nn.BCEWithLogitsLoss()
-        self.bce_loss = nn.BCELoss()
+        self.bce_with_logits_loss = nn.BCEWithLogitsLoss()
 
     def forward(
         self,
@@ -59,7 +58,7 @@ class BinaryCrossEntropyLoss(BaseWeightedLoss):
         scalar_indices: tuple[int, ...] | None = None,
         without_scalars: list[str] | list[int] | None = None,
     ) -> torch.Tensor:
-        """Calculate the lat-weighted binary crossentropy loss.
+        """Calculate the lat-weighted binary crossentropy with logits loss.
 
         Parameters
         ----------
@@ -78,8 +77,6 @@ class BinaryCrossEntropyLoss(BaseWeightedLoss):
         Returns
         -------
         torch.Tensor
-            Weighted binary cross entropy loss
+            Weighted binary cross entropy with logits loss
         """
-        epsilon = 1e-3
-        with torch.cuda.amp.autocast(enabled=False):
-            return self.bce_loss((pred.float() + epsilon)/(1+2*epsilon), target.float())  # Add epsilon to avoid predicting 0 or 1.
+        return self.bce_with_logits_loss(pred.float(), target.float())  # BCE likes floats.
