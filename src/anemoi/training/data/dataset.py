@@ -164,7 +164,7 @@ class NativeGridDataset(IterableDataset):
             high,
         )
 
-        self.chunk_index_range = self.valid_date_indices[np.arange(low, high, dtype=np.uint32)]
+        self.chunk_index_range = np.arange(low, high, dtype=np.uint32)
 
         # each worker must have a different seed for its random number generator,
         # otherwise all the workers will output exactly the same data
@@ -208,12 +208,12 @@ class NativeGridDataset(IterableDataset):
         """
         if self.shuffle:
             shuffled_chunk_indices = self.rng.choice(
-                self.chunk_index_range,
-                size=self.n_samples_per_worker,
+                self.valid_date_indices,
+                size=len(self.valid_date_indices),
                 replace=False,
-            )
+            )[self.chunk_index_range]
         else:
-            shuffled_chunk_indices = self.chunk_index_range
+            shuffled_chunk_indices = self.valid_date_indices[self.chunk_index_range]
 
         LOGGER.debug(
             (
@@ -303,12 +303,12 @@ class ZipDataset(NativeGridDataset):
         """
         if self.shuffle:
             shuffled_chunk_indices = self.rng.choice(
-                self.chunk_index_range,
-                size=self.n_samples_per_worker,
+                self.valid_date_indices,
+                size=len(self.valid_date_indices),
                 replace=False,
-            )
+            )[self.chunk_index_range]
         else:
-            shuffled_chunk_indices = self.chunk_index_range
+            shuffled_chunk_indices = self.valid_date_indices[self.chunk_index_range]
 
         LOGGER.debug(
             (
